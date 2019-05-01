@@ -36,12 +36,12 @@ strcoordinate parse_stop(const char * buffer) {
 	pos.chr = "";
 	pos.pos = -1;
 	while (buffer[i] != '\t' && (buffer[i] != '\n' && buffer[i] != '\0')) {
-
-		if (strncmp(&buffer[i], ";END=", 5) == 0 || (i == 0 && strncmp(&buffer[i], "END=", 5) == 0)) {
-			//if (pos.pos == -1) {
+		if (strncmp(&buffer[i], ";END=", 5) == 0) {
 			pos.pos = atoi(&buffer[i + 5]);
-			//}
-			//	std::cout<<"pos"<<pos.pos<<std::endl;
+		}
+		if ((strncmp(&buffer[i], "END=", 4) == 0 && i == 0)) {
+			pos.pos = atoi(&buffer[i + 4]);
+			//std::cout<<"pos"<<pos.pos<<std::endl;
 		}
 		if (strncmp(&buffer[i], "CHR2=", 5) == 0) {
 			i = i + 5;
@@ -146,7 +146,6 @@ std::string trans_type23(short type) {
 }
 
 strcoordinate parse_pos(char * buffer) {
-
 	strcoordinate pos;
 	pos.chr = "";
 	pos.pos = -1;
@@ -554,23 +553,13 @@ std::vector<strvcfentry> parse_vcf(std::string & filename, int min_svs) {
 	//char*buffer = new char[buffer_size];
 
 	std::string buffer;
-	std::ifstream myfile;
+	GzipStreamBuf gzbuf(filename.c_str());
+	std::istream myfile(&gzbuf);
 
-	myfile.open(filename.c_str(), std::ifstream::in);
 	if (!myfile.good()) {
-		std::cout << "Annotation Parser: could not open file: " << filename.c_str() << std::endl;
-		exit(0);
+		std::cerr << "VCF Parser: could not open file: " << filename.c_str() << " " << strerror(errno) << std::endl;
+		exit(EXIT_FAILURE);
 	}
-	/*std::string buffer; There seems to be some problem with the parsing!
-	 GzipStreamBuf gzbuf(filename.c_str());
-	 std::istream myfile(&gzbuf);
-
-	 myfile.open(filename.c_str(), std::ifstream::in);
-
-	 if (!myfile.good()) {
-	 std::cerr << "VCF Parser: could not open file: " << filename.c_str() << " " << strerror(errno) << std::endl;
-	 exit(EXIT_FAILURE);
-	 }*/
 
 	std::vector<strvcfentry> calls;
 	getline(myfile, buffer);
@@ -597,11 +586,8 @@ std::vector<strvcfentry> parse_vcf(std::string & filename, int min_svs) {
 			num++;
 			int count = 0;
 			strvcfentry tmp;
-			tmp.start.chr = "";
-			tmp.stop.chr = "";
 			tmp.sup_lumpy = 0;
 			tmp.stop.pos = -1;
-			tmp.start.pos = -1;
 			tmp.type = -1;
 			bool set_strand = false;
 			//	std::string ref;
@@ -628,7 +614,7 @@ std::vector<strvcfentry> parse_vcf(std::string & filename, int min_svs) {
 					//std::cout<<tmp.start.pos<<std::endl;
 				}
 				if (count == 2 && buffer[i] != '\t') {
-					tmp.sv_id += buffer[i];
+					tmp.sv_id += (buffer[i]==':'?'~':buffer[i]);
 				}
 				if (count == 3 && buffer[i] != '\t') {
 					tmp.alleles.first += buffer[i];
@@ -638,18 +624,9 @@ std::vector<strvcfentry> parse_vcf(std::string & filename, int min_svs) {
 					tmp.alleles.second += buffer[i];
 					//	alt += buffer[i];
 				}
-
-				if ((tmp.stop.pos ==-1 && count == 4) && (buffer[i - 1] == '[' || buffer[i - 1] == ']')) {
-
-
-					tmp.stop = parse_pos(&buffer[i - 1]);
-
-				}
-
 				if (count == 4 && buffer[i - 1] == '\t') {
 					tmp.strands = parse_strands_lumpy(&buffer[i]);
 				}
-
 				if (count == 5 && buffer[i - 1] == '\t') {
 					if (buffer[i] == '.') {
 						tmp.quality = -1;			//not set;
@@ -657,13 +634,10 @@ std::vector<strvcfentry> parse_vcf(std::string & filename, int min_svs) {
 						tmp.quality = atoi(&buffer[i]);
 					}
 				}
-				if (tmp.stop.pos ==-1 && (count == 7 && buffer[i - 1] == '\t')) {
+				if (tmp.stop.pos == -1 && (count == 7 && buffer[i - 1] == '\t')) {
 					tmp.stop = parse_stop(&buffer[i]);
-					//		if (tmp.start.pos == 1142719) {
-					//			std::cout << "Stop:" << tmp.stop.pos << std::endl;
-					//		}
+					//std::cout<<"Stop:"<<tmp.stop.pos<<std::endl;
 				}
-
 				if (count == 7 && strncmp(&buffer[i], "SVTYPE=", 7) == 0) {
 					tmp.type = get_type(std::string(&buffer[i + 7]));
 				}
@@ -684,7 +658,7 @@ std::vector<strvcfentry> parse_vcf(std::string & filename, int min_svs) {
 					tmp.strands.second = (bool) (buffer[i + 7] != '5');
 				}
 
-				if ((tmp.sv_len == -1 && count == 7) && (strncmp(&buffer[i], "AVGLEN=", 7) == 0)) {
+				if ((tmp.sv_len == -1 && count == 7) && (strncmp(&buffer[i], "HOMLEN=", 7) == 0 || strncmp(&buffer[i], "AVGLEN=", 7) == 0)) {
 					tmp.sv_len = abs((int) atof(&buffer[i + 7]));
 					//		std::cout<<"LEN: "<<tmp.sv_len<<std::endl;
 				}
@@ -702,7 +676,7 @@ std::vector<strvcfentry> parse_vcf(std::string & filename, int min_svs) {
 				if (count == 7 && (strncmp(&buffer[i], "SUPP_VEC=", 9) == 0)) {
 					tmp.prev_support_vec = parse_supp_vec(&buffer[i + 9]);
 				}
-				if ((tmp.sv_len == -1 && count == 7) && strncmp(&buffer[i], "INSLEN=", 7) == 0) {
+				if (count == 7 && strncmp(&buffer[i], "INSLEN=", 7) == 0) {
 					if (atof(&buffer[i + 7]) > 0) {
 						tmp.sv_len = abs((int) atof(&buffer[i + 7]));
 					}
@@ -744,6 +718,9 @@ std::vector<strvcfentry> parse_vcf(std::string & filename, int min_svs) {
 				if (count == 4 && buffer[i - 1] == '<') {
 					tmp.type = get_type(std::string(&buffer[i]));
 				}
+				if (tmp.stop.pos == -1 && (count == 4 && (buffer[i - 1] == '[' || buffer[i - 1] == ']'))) {
+					tmp.stop = parse_pos(&buffer[i - 1]);
+				}
 
 				if (count == 9 && buffer[i - 1] == '\t') {
 					tmp.calls[filename] = std::string(&buffer[i]);
@@ -770,30 +747,33 @@ std::vector<strvcfentry> parse_vcf(std::string & filename, int min_svs) {
 				}
 			}
 
+			if (tmp.stop.pos == -1 && tmp.sv_len != -1) {
+				tmp.stop.pos = tmp.start.pos + tmp.sv_len;
+			}
+			if (tmp.stop.pos == -1) {
+				std::size_t found = tmp.alleles.second.find(",");
+				if (found != std::string::npos) {
+					tmp.alleles.second = get_most_effect(tmp.alleles.second, (int) tmp.alleles.first.size());
+				}
+				tmp.stop.chr = tmp.start.chr;
+				tmp.sv_len = (int) tmp.alleles.first.size() - (int) tmp.alleles.second.size();
+				tmp.stop.pos = tmp.start.pos + abs(tmp.sv_len);
+				if (tmp.type == -1) {
+					if (tmp.sv_len > 0) {
+						tmp.type = 0; //deletion
+					} else if (tmp.sv_len < 0) {
+						tmp.type = 4; //insertions
+						tmp.sv_len = abs(tmp.sv_len);
+						//	std::cout<<"INS: "<<tmp.sv_len <<std::endl;
+					}
+				}
+			}
 			if (tmp.stop.chr.empty()) {
 				tmp.stop.chr = tmp.start.chr;
 			}
-
-			if (tmp.sv_len == -1) {
-				if (tmp.stop.pos != -1) {
-					tmp.sv_len = abs(tmp.start.pos - tmp.stop.pos);
-				} else if (tmp.alleles.second[0] != '<') {
-					std::size_t found = tmp.alleles.second.find(",");
-					if (found != std::string::npos) {
-						tmp.alleles.second = get_most_effect(tmp.alleles.second, (int) tmp.alleles.first.size());
-					}
-					tmp.sv_len = (int) tmp.alleles.first.size() - (int) tmp.alleles.second.size();
-				}
-
+			if (tmp.sv_len < 1) {
+				tmp.sv_len = abs(tmp.start.pos - tmp.stop.pos);
 			}
-
-			if (tmp.stop.pos == -1 && tmp.sv_len != -1) {
-				tmp.stop.pos = tmp.start.pos + abs(tmp.sv_len);
-			}
-
-		//	if (tmp.start.pos == 102590230 || tmp.start.pos == 102590234) {
-		//		std::cout << "LEN2: " << tmp.start.chr << " " << tmp.start.pos << " " << tmp.stop.chr << " " << tmp.stop.pos << " " << tmp.sv_len << " " << tmp.type << std::endl;
-		//	}
 			if ((strcmp(tmp.start.chr.c_str(), tmp.stop.chr.c_str()) != 0 || (tmp.sv_len >= min_svs))) { // || tmp.type==4
 				/*	std::size_t found = tmp.stop.chr.find("chr");
 				 if (found != std::string::npos) {
@@ -813,7 +793,7 @@ std::vector<strvcfentry> parse_vcf(std::string & filename, int min_svs) {
 
 				}
 				//	if (freq > Parameter::Instance()->min_freq) {
-				//	std::cout<<"Call: "<<tmp.start.pos <<" "<<tmp.stop.pos<<" "<<tmp.type<<std::endl;
+			//	std::cout<<"Call: "<<tmp.start.pos <<" "<<tmp.stop.pos<<" "<<tmp.type<<std::endl;
 				calls.push_back(tmp);
 				//	}
 
@@ -824,7 +804,7 @@ std::vector<strvcfentry> parse_vcf(std::string & filename, int min_svs) {
 		}
 		getline(myfile, buffer);
 	}
-
+	
 //std::cout << calls.size() << std::endl;
 	return calls;
 }
